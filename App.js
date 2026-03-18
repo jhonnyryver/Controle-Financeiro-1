@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ScrollView, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ScrollView, Dimensions, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PieChart } from 'react-native-chart-kit';
 
@@ -28,6 +28,9 @@ export default function App() {
   const [metaGuardar, setMetaGuardar] = useState('');
   const [mesFiltro, setMesFiltro] = useState(new Date());
   const [isDarkMode, setIsDarkMode] = useState(false);
+  
+  // NOVO: Controle de conta fixa recorrente
+  const [isRecorrente, setIsRecorrente] = useState(false);
   
   // ESTADO DE EDIÇÃO
   const [editingId, setEditingId] = useState(null);
@@ -82,7 +85,8 @@ export default function App() {
             descricao,
             valor: tipoTransacao === 'entrada' ? Math.abs(valorNumerico) : -Math.abs(valorNumerico),
             tipo: tipoTransacao,
-            categoria: categoriaSelecionada
+            categoria: categoriaSelecionada,
+            recorrente: tipoTransacao === 'fixa' ? isRecorrente : false // Atualiza recorrência
           };
         }
         return t;
@@ -111,7 +115,8 @@ export default function App() {
           categoria: categoriaSelecionada,
           banco: nomeCartao || 'Cartão',
           dataCompleta: dataParcela.toISOString(),
-          dia: dataParcela.getDate().toString().padStart(2, '0')
+          dia: dataParcela.getDate().toString().padStart(2, '0'),
+          recorrente: false
         });
       }
     } else {
@@ -122,14 +127,15 @@ export default function App() {
         tipo: tipoTransacao,
         categoria: categoriaSelecionada,
         dataCompleta: dataAtual.toISOString(),
-        dia: dataAtual.getDate().toString().padStart(2, '0')
+        dia: dataAtual.getDate().toString().padStart(2, '0'),
+        recorrente: tipoTransacao === 'fixa' ? isRecorrente : false // Salva se repete todo mês
       });
     }
 
     const novasTransacoes = [...transacoes, ...novasTransacoesAdicionadas];
     setTransacoes(novasTransacoes);
     salvarDados(novasTransacoes, metaGuardar);
-    cancelarEdicao(); // Limpa os campos
+    cancelarEdicao(); 
   };
 
   const iniciarEdicao = (item) => {
@@ -142,6 +148,7 @@ export default function App() {
     setValor(Math.abs(item.valor).toString());
     setTipoTransacao(item.tipo);
     setCategoriaSelecionada(item.categoria || 'Outros');
+    setIsRecorrente(item.recorrente || false); // Recupera o estado
   };
 
   const cancelarEdicao = () => {
@@ -151,10 +158,11 @@ export default function App() {
     setNomeCartao('');
     setParcelas('1');
     setCategoriaSelecionada('Outros');
+    setIsRecorrente(false);
   };
 
   const excluirTransacao = (idParaApagar) => {
-    Alert.alert("Apagar Registo", "Tem a certeza que deseja apagar este item?", [
+    Alert.alert("Apagar Registo", "Tem a certeza que deseja apagar este item? Se for uma conta mensal, ela sumirá de todos os meses.", [
         { text: "Cancelar", style: "cancel" },
         { 
           text: "Sim, apagar", 
@@ -163,22 +171,6 @@ export default function App() {
             setTransacoes(novasTransacoes);
             salvarDados(novasTransacoes, metaGuardar);
           },
-          style: "destructive"
-        }
-      ]);
-  };
-
-  const atualizarMeta = (texto) => {
-    setMetaGuardar(texto);
-    salvarDados(transacoes, texto);
-  };
-
-  const limparTudo = () => {
-    Alert.alert("Atenção!", "Apagar todo o histórico de todos os meses?", [
-        { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Sim, apagar tudo", 
-          onPress: () => { setTransacoes([]); setMetaGuardar(''); salvarDados([], ''); },
           style: "destructive"
         }
       ]);
@@ -195,8 +187,17 @@ export default function App() {
     return cat ? cat.icone : '✨';
   };
 
+  // LÓGICA MÁGICA DO FILTRO: Inclui o mês atual + contas fixas recorrentes de meses passados
   const transacoesDoMes = transacoes.filter(t => {
     const dataT = new Date(t.dataCompleta);
+    
+    if (t.recorrente) {
+      const mesesAbsolutosT = dataT.getFullYear() * 12 + dataT.getMonth();
+      const mesesAbsolutosFiltro = mesFiltro.getFullYear() * 12 + mesFiltro.getMonth();
+      // Aparece no mês em que foi criada e em todos os próximos
+      return mesesAbsolutosFiltro >= mesesAbsolutosT;
+    }
+
     return dataT.getMonth() === mesFiltro.getMonth() && dataT.getFullYear() === mesFiltro.getFullYear();
   });
 
@@ -325,6 +326,19 @@ export default function App() {
             <TextInput style={[styles.input, { flex: 0.5, backgroundColor: tema.bgInput, color: tema.textoPrincipal }]} placeholderTextColor={tema.textoSecundario} placeholder="Parcelas" value={parcelas} onChangeText={setParcelas} keyboardType="numeric" />
           </View>
         )}
+
+        {/* BOTAO SWITCH RECORRENTE APARECE APENAS EM DESPESA FIXA */}
+        {tipoTransacao === 'fixa' && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15, backgroundColor: tema.btnMesBg, padding: 12, borderRadius: 8 }}>
+            <Text style={{ color: tema.textoPrincipal, fontWeight: 'bold' }}>🔄 Repetir todos os meses?</Text>
+            <Switch
+              value={isRecorrente}
+              onValueChange={setIsRecorrente}
+              trackColor={{ false: '#767577', true: '#d35400' }}
+              thumbColor={isRecorrente ? '#fff' : '#f4f3f4'}
+            />
+          </View>
+        )}
         
         <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
           <TouchableOpacity style={[styles.botaoAdd, {flex: editingId ? 0.65 : 1, backgroundColor: editingId ? '#28a745' : '#007BFF'}]} onPress={salvarTransacao}>
@@ -351,7 +365,9 @@ export default function App() {
               </View>
               <View>
                 <Text style={[styles.itemDescricao, { color: tema.textoPrincipal }]}>{item.descricao}</Text>
-                <Text style={[styles.itemTipoLabel, { color: tema.textoSecundario }]}>{item.dia} • {item.tipo === 'entrada' ? 'Receita' : item.tipo === 'cartao' ? `Cartão ${item.banco}` : item.tipo === 'fixa' ? 'Fixa' : 'Gasto'}</Text>
+                <Text style={[styles.itemTipoLabel, { color: tema.textoSecundario }]}>
+                  {item.dia} • {item.tipo === 'entrada' ? 'Receita' : item.tipo === 'cartao' ? `Cartão ${item.banco}` : item.tipo === 'fixa' ? (item.recorrente ? 'Fixa (Mensal)' : 'Fixa') : 'Gasto'}
+                </Text>
               </View>
             </View>
             
@@ -391,43 +407,4 @@ const styles = StyleSheet.create({
   painelCards: { marginBottom: 15 },
   cardLivre: { backgroundColor: '#d4edda', padding: 20, borderRadius: 12, alignItems: 'center', marginBottom: 10, elevation: 2 },
   cardLivreAlerta: { backgroundColor: '#f8d7da' },
-  labelCardCores: { fontSize: 14, color: '#155724', fontWeight: 'bold', marginBottom: 5 },
-  valorLivre: { fontSize: 32, fontWeight: 'bold' },
-  cardsSecundarios: { flexDirection: 'row', justifyContent: 'space-between' },
-  cardPequeno: { padding: 15, borderRadius: 10, flex: 0.48, alignItems: 'center', elevation: 1 },
-  labelPequeno: { fontSize: 12, marginBottom: 5 },
-  valorPequeno: { fontSize: 16, fontWeight: 'bold' },
-  areaGrafico: { padding: 15, borderRadius: 12, marginBottom: 20, elevation: 1, alignItems: 'center', justifyContent: 'center' },
-  areaInput: { padding: 15, borderRadius: 12, marginBottom: 20, elevation: 2 },
-  tituloSecao: { fontSize: 16, fontWeight: 'bold', marginBottom: 10 },
-  seletorTipo: { flexDirection: 'row', marginBottom: 15 },
-  btnTipo: { padding: 10, borderRadius: 8, marginRight: 10, minWidth: 80, alignItems: 'center' },
-  btnTipoAtivoEntrada: { backgroundColor: '#28a745' },
-  btnTipoAtivoGasto: { backgroundColor: '#e74c3c' },
-  btnTipoAtivoFixa: { backgroundColor: '#d35400' },
-  btnTipoAtivoCartao: { backgroundColor: '#8e44ad' },
-  textoTipo: { fontSize: 12, fontWeight: 'bold' },
-  textoTipoAtivo: { fontSize: 12, color: '#fff', fontWeight: 'bold' },
-  
-  btnCategoria: { flexDirection: 'row', padding: 10, borderRadius: 20, marginRight: 10, alignItems: 'center', opacity: 0.6 },
-  btnCategoriaAtivo: { backgroundColor: '#007BFF', opacity: 1 },
-  iconeCategoria: { fontSize: 18 },
-  textoCategoriaAtivo: { color: '#fff', fontSize: 12, fontWeight: 'bold', marginLeft: 5 },
-
-  input: { padding: 12, borderRadius: 8, marginBottom: 10 },
-  linhaCartao: { flexDirection: 'row', justifyContent: 'space-between' },
-  botaoAdd: { padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 5 },
-  botaoTexto: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
-  
-  areaListas: { marginBottom: 20 },
-  textoVazio: { textAlign: 'center', color: '#999', marginVertical: 20 },
-  itemLista: { flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderRadius: 10, marginBottom: 8, alignItems: 'center' },
-  itemEsquerda: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  bolaIcone: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0f2f5', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  itemDescricao: { fontSize: 15, fontWeight: 'bold', flexShrink: 1 },
-  itemTipoLabel: { fontSize: 11, marginTop: 2 },
-  itemAcoes: { flexDirection: 'row', alignItems: 'center' },
-  itemDireita: { alignItems: 'flex-end' },
-  itemValor: { fontSize: 15, fontWeight: 'bold' },
-  botaoAcaoItem: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-});
+  labelCardCores: { fontSize: 14, color: '#155724', fontWeight: 'bold', marginBo
